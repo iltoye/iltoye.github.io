@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>惊艳音频可视化</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            cursor: none;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle at center, #0a0a0a 0%, #000000 100%);
+        }
+
+        .start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: all 1s ease;
+        }
+
+        .start-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .start-btn {
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4);
+            background-size: 400% 400%;
+            border: none;
+            color: white;
+            padding: 20px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+            animation: gradientShift 3s ease infinite;
+            transition: all 0.3s ease;
+        }
+
+        .start-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+
+        audio {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="start-overlay" id="startOverlay">
+        <button class="start-btn" id="startBtn">开始音乐之旅</button>
+    </div>
+
+    <!-- 使用在线音频文件或本地文件 -->
+    <audio id="audio" loop>
+        <!-- 你可以替换为你的音频文件路径 -->
+        <!-- <source src="https://www.soundjay.com/misc/sounds/bell-ringing-05.wav" type="audio/wav"> -->
+        <source src="1.mp3" type="audio/wav">
+        <!-- 备用音频源 -->
+        <source
+            src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT"
+            type="audio/wav">
+    </audio>
+
+    <script>
+        class SpectacularVisualizer {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.audio = document.getElementById('audio');
+                this.startBtn = document.getElementById('startBtn');
+                this.startOverlay = document.getElementById('startOverlay');
+
+                this.audioContext = null;
+                this.analyser = null;
+                this.dataArray = null;
+                this.source = null;
+
+                this.particles = [];
+                this.waves = [];
+                this.explosions = [];
+                this.time = 0;
+                this.bassHistory = [];
+                this.lastBassTime = 0;
+
+                this.colors = [
+                    '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4',
+                    '#feca57', '#ff9ff3', '#54a0ff', '#5f27cd',
+                    '#00d2d3', '#ff9f43', '#10ac84', '#ee5a24'
+                ];
+
+                this.init();
+            }
+
+            init() {
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                this.startBtn.addEventListener('click', () => this.startExperience());
+
+                this.createParticles();
+                this.createWaves();
+                this.animate();
+            }
+
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+            }
+
+            async startExperience() {
+                try {
+                    // 创建音频上下文
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                    // 设置分析器
+                    this.analyser = this.audioContext.createAnalyser();
+                    this.analyser.fftSize = 1024;
+                    this.analyser.smoothingTimeConstant = 0.85;
+                    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+
+                    // 连接音频
+                    this.source = this.audioContext.createMediaElementSource(this.audio);
+                    this.source.connect(this.analyser);
+                    this.analyser.connect(this.audioContext.destination);
+
+                    // 开始播放
+                    await this.audio.play();
+
+                    // 隐藏开始界面
+                    this.startOverlay.classList.add('hidden');
+
+                } catch (error) {
+                    console.error('音频初始化失败:', error);
+                    // 如果音频加载失败，使用程序生成的音频数据
+                    this.startOverlay.classList.add('hidden');
+                    this.simulateAudioData();
+                }
+            }
+
+            simulateAudioData() {
+                // 模拟音频数据用于演示
+                this.dataArray = new Uint8Array(512);
+                setInterval(() => {
+                    for (let i = 0; i < this.dataArray.length; i++) {
+                        this.dataArray[i] = Math.random() * 255 * Math.sin(this.time * 0.01 + i * 0.1);
+                    }
+                }, 16);
+            }
+
+            createParticles() {
+                this.particles = [];
+                for (let i = 0; i < 200; i++) {
+                    this.particles.push({
+                        x: Math.random() * this.canvas.width,
+                        y: Math.random() * this.canvas.height,
+                        vx: (Math.random() - 0.5) * 2,
+                        vy: (Math.random() - 0.5) * 2,
+                        size: Math.random() * 3 + 1,
+                        baseSize: Math.random() * 3 + 1,
+                        color: this.colors[Math.floor(Math.random() * this.colors.length)],
+                        angle: Math.random() * Math.PI * 2,
+                        speed: Math.random() * 0.02 + 0.01,
+                        life: 1,
+                        trail: []
+                    });
+                }
+            }
+
+            createWaves() {
+                this.waves = [];
+                for (let i = 0; i < 5; i++) {
+                    this.waves.push({
+                        radius: 0,
+                        maxRadius: Math.random() * 300 + 200,
+                        x: this.canvas.width / 2,
+                        y: this.canvas.height / 2,
+                        color: this.colors[Math.floor(Math.random() * this.colors.length)],
+                        life: 1,
+                        speed: Math.random() * 2 + 1
+                    });
+                }
+            }
+
+            getAudioData() {
+                if (!this.analyser || !this.dataArray) return null;
+
+                this.analyser.getByteFrequencyData(this.dataArray);
+
+                const bass = this.getFrequencyRange(0, 60);
+                const mid = this.getFrequencyRange(60, 200);
+                const treble = this.getFrequencyRange(200, this.dataArray.length);
+
+                // 检测低频突变（节拍检测）
+                this.bassHistory.push(bass);
+                if (this.bassHistory.length > 5) this.bassHistory.shift();
+
+                const bassAvg = this.bassHistory.reduce((a, b) => a + b) / this.bassHistory.length;
+                const bassDiff = bass - bassAvg;
+
+                if (bassDiff > 30 && this.time - this.lastBassTime > 10) {
+                    this.createExplosion();
+                    this.lastBassTime = this.time;
+                }
+
+                return { bass, mid, treble, raw: this.dataArray };
+            }
+
+            getFrequencyRange(start, end) {
+                let sum = 0;
+                const count = Math.min(end, this.dataArray.length) - start;
+                for (let i = start; i < Math.min(end, this.dataArray.length); i++) {
+                    sum += this.dataArray[i];
+                }
+                return sum / count;
+            }
+
+            createExplosion() {
+                this.explosions.push({
+                    x: Math.random() * this.canvas.width,
+                    y: Math.random() * this.canvas.height,
+                    particles: [],
+                    life: 1
+                });
+
+                const explosion = this.explosions[this.explosions.length - 1];
+                for (let i = 0; i < 30; i++) {
+                    const angle = (Math.PI * 2 * i) / 30;
+                    explosion.particles.push({
+                        x: explosion.x,
+                        y: explosion.y,
+                        vx: Math.cos(angle) * (Math.random() * 5 + 2),
+                        vy: Math.sin(angle) * (Math.random() * 5 + 2),
+                        size: Math.random() * 4 + 2,
+                        color: this.colors[Math.floor(Math.random() * this.colors.length)],
+                        life: 1
+                    });
+                }
+            }
+
+            drawBackground(audioData) {
+                if (!audioData) {
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+                    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                    return;
+                }
+
+                const bassIntensity = audioData.bass / 255;
+
+                // 动态背景
+                const gradient = this.ctx.createRadialGradient(
+                    this.canvas.width / 2, this.canvas.height / 2, 0,
+                    this.canvas.width / 2, this.canvas.height / 2, this.canvas.width
+                );
+
+                const hue1 = (this.time * 0.5) % 360;
+                const hue2 = (this.time * 0.3 + 120) % 360;
+
+                gradient.addColorStop(0, `hsla(${hue1}, 70%, ${10 + bassIntensity * 20}%, 0.1)`);
+                gradient.addColorStop(0.5, `hsla(${hue2}, 60%, ${5 + bassIntensity * 15}%, 0.05)`);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0.02)');
+
+                this.ctx.fillStyle = gradient;
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+
+            drawParticles(audioData) {
+                if (!audioData) return;
+
+                const centerX = this.canvas.width / 2;
+                const centerY = this.canvas.height / 2;
+                const bassIntensity = audioData.bass / 255;
+                const midIntensity = audioData.mid / 255;
+                const trebleIntensity = audioData.treble / 255;
+
+                this.particles.forEach((particle, index) => {
+                    // 音频响应运动
+                    const freqIndex = Math.floor((index / this.particles.length) * audioData.raw.length);
+                    const freq = audioData.raw[freqIndex] / 255;
+
+                    // 螺旋运动
+                    particle.angle += particle.speed + bassIntensity * 0.05;
+                    const radius = 100 + midIntensity * 300 + Math.sin(this.time * 0.02 + index) * 100;
+
+                    const targetX = centerX + Math.cos(particle.angle) * radius;
+                    const targetY = centerY + Math.sin(particle.angle) * radius;
+
+                    // 平滑移动
+                    particle.x += (targetX - particle.x) * 0.1;
+                    particle.y += (targetY - particle.y) * 0.1;
+
+                    // 大小响应
+                    particle.size = particle.baseSize + freq * 15 + trebleIntensity * 10;
+
+                    // 轨迹效果
+                    particle.trail.push({ x: particle.x, y: particle.y });
+                    if (particle.trail.length > 10) particle.trail.shift();
+
+                    // 绘制轨迹
+                    this.ctx.strokeStyle = particle.color + '40';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.beginPath();
+                    particle.trail.forEach((point, i) => {
+                        if (i === 0) this.ctx.moveTo(point.x, point.y);
+                        else this.ctx.lineTo(point.x, point.y);
+                    });
+                    this.ctx.stroke();
+
+                    // 绘制粒子
+                    const glowSize = particle.size + bassIntensity * 20;
+                    const gradient = this.ctx.createRadialGradient(
+                        particle.x, particle.y, 0,
+                        particle.x, particle.y, glowSize
+                    );
+
+                    gradient.addColorStop(0, particle.color);
+                    gradient.addColorStop(0.3, particle.color + '80');
+                    gradient.addColorStop(1, 'transparent');
+
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.beginPath();
+                    this.ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // 添加闪烁效果
+                    if (freq > 0.7) {
+                        this.ctx.fillStyle = '#ffffff';
+                        this.ctx.beginPath();
+                        this.ctx.arc(particle.x, particle.y, particle.size * 0.3, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
+                });
+            }
+
+            drawWaves(audioData) {
+                if (!audioData) return;
+
+                const bassIntensity = audioData.bass / 255;
+                const midIntensity = audioData.mid / 255;
+
+                // 更新波浪
+                this.waves.forEach((wave, index) => {
+                    wave.radius += wave.speed + bassIntensity * 5;
+                    wave.life -= 0.005;
+
+                    if (wave.radius > wave.maxRadius || wave.life <= 0) {
+                        wave.radius = 0;
+                        wave.life = 1;
+                        wave.x = this.canvas.width / 2 + (Math.random() - 0.5) * 200;
+                        wave.y = this.canvas.height / 2 + (Math.random() - 0.5) * 200;
+                        wave.color = this.colors[Math.floor(Math.random() * this.colors.length)];
+                    }
+
+                    // 绘制波浪
+                    this.ctx.strokeStyle = wave.color + Math.floor(wave.life * 255).toString(16).padStart(2, '0');
+                    this.ctx.lineWidth = 3 + midIntensity * 5;
+                    this.ctx.beginPath();
+                    this.ctx.arc(wave.x, wave.y, wave.radius, 0, Math.PI * 2);
+                    this.ctx.stroke();
+                });
+            }
+
+            drawFrequencyBars(audioData) {
+                if (!audioData) return;
+
+                const barCount = 64;
+                const barWidth = this.canvas.width / barCount;
+                const centerY = this.canvas.height / 2;
+
+                for (let i = 0; i < barCount; i++) {
+                    const dataIndex = Math.floor((i / barCount) * audioData.raw.length);
+                    const barHeight = (audioData.raw[dataIndex] / 255) * (this.canvas.height / 2);
+
+                    const hue = (i / barCount) * 360 + this.time;
+                    const color = `hsl(${hue % 360}, 70%, 60%)`;
+
+                    // 上半部分
+                    this.ctx.fillStyle = color;
+                    this.ctx.fillRect(i * barWidth, centerY - barHeight, barWidth - 2, barHeight);
+
+                    // 下半部分（镜像）
+                    this.ctx.fillRect(i * barWidth, centerY, barWidth - 2, barHeight);
+
+                    // 发光效果
+                    this.ctx.shadowColor = color;
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.fillRect(i * barWidth, centerY - barHeight, barWidth - 2, barHeight);
+                    this.ctx.fillRect(i * barWidth, centerY, barWidth - 2, barHeight);
+                    this.ctx.shadowBlur = 0;
+                }
+            }
+
+            drawSpectrum(audioData) {
+                if (!audioData) return;
+
+                const centerX = this.canvas.width / 2;
+                const centerY = this.canvas.height / 2;
+                const bassIntensity = audioData.bass / 255;
+
+                // 圆形频谱
+                this.ctx.strokeStyle = `hsl(${this.time % 360}, 70%, 60%)`;
+                this.ctx.lineWidth = 2 + bassIntensity * 3;
+                this.ctx.beginPath();
+
+                for (let i = 0; i < audioData.raw.length; i++) {
+                    const angle = (i / audioData.raw.length) * Math.PI * 2;
+                    const radius = 150 + (audioData.raw[i] / 255) * 200;
+                    const x = centerX + Math.cos(angle) * radius;
+                    const y = centerY + Math.sin(angle) * radius;
+
+                    if (i === 0) {
+                        this.ctx.moveTo(x, y);
+                    } else {
+                        this.ctx.lineTo(x, y);
+                    }
+                }
+
+                this.ctx.closePath();
+                this.ctx.stroke();
+
+                // 填充效果
+                const gradient = this.ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 350);
+                gradient.addColorStop(0, `hsla(${this.time % 360}, 70%, 60%, 0.1)`);
+                gradient.addColorStop(1, 'transparent');
+                this.ctx.fillStyle = gradient;
+                this.ctx.fill();
+            }
+
+            drawExplosions() {
+                this.explosions.forEach((explosion, explosionIndex) => {
+                    explosion.life -= 0.02;
+
+                    explosion.particles.forEach((particle, particleIndex) => {
+                        particle.x += particle.vx;
+                        particle.y += particle.vy;
+                        particle.vx *= 0.98;
+                        particle.vy *= 0.98;
+                        particle.life -= 0.02;
+                        particle.size *= 0.99;
+
+                        if (particle.life > 0) {
+                            const alpha = Math.floor(particle.life * 255).toString(16).padStart(2, '0');
+                            this.ctx.fillStyle = particle.color + alpha;
+                            this.ctx.beginPath();
+                            this.ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                            this.ctx.fill();
+
+                            // 发光效果
+                            this.ctx.shadowColor = particle.color;
+                            this.ctx.shadowBlur = 15;
+                            this.ctx.fill();
+                            this.ctx.shadowBlur = 0;
+                        }
+                    });
+
+                    // 清理死亡的爆炸效果
+                    if (explosion.life <= 0) {
+                        this.explosions.splice(explosionIndex, 1);
+                    }
+                });
+            }
+
+            drawLightning(audioData) {
+                if (!audioData) return;
+
+                const trebleIntensity = audioData.treble / 255;
+
+                if (trebleIntensity > 0.8 && Math.random() < 0.1) {
+                    const startX = Math.random() * this.canvas.width;
+                    const startY = Math.random() * this.canvas.height;
+                    const endX = Math.random() * this.canvas.width;
+                    const endY = Math.random() * this.canvas.height;
+
+                    this.ctx.strokeStyle = '#ffffff';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.shadowColor = '#ffffff';
+                    this.ctx.shadowBlur = 20;
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(startX, startY);
+
+                    // 创建锯齿状闪电
+                    const segments = 10;
+                    for (let i = 1; i <= segments; i++) {
+                        const progress = i / segments;
+                        const x = startX + (endX - startX) * progress + (Math.random() - 0.5) * 50;
+                        const y = startY + (endY - startY) * progress + (Math.random() - 0.5) * 50;
+                        this.ctx.lineTo(x, y);
+                    }
+
+                    this.ctx.stroke();
+                    this.ctx.shadowBlur = 0;
+                }
+            }
+
+            drawCentralOrb(audioData) {
+                if (!audioData) return;
+
+                const centerX = this.canvas.width / 2;
+                const centerY = this.canvas.height / 2;
+                const bassIntensity = audioData.bass / 255;
+                const midIntensity = audioData.mid / 255;
+
+                const orbSize = 30 + bassIntensity * 50;
+
+                // 外层光环
+                for (let i = 0; i < 3; i++) {
+                    const radius = orbSize + i * 20;
+                    const gradient = this.ctx.createRadialGradient(
+                        centerX, centerY, radius * 0.5,
+                        centerX, centerY, radius
+                    );
+
+                    const hue = (this.time + i * 120) % 360;
+                    gradient.addColorStop(0, `hsla(${hue}, 70%, 60%, ${0.3 - i * 0.1})`);
+                    gradient.addColorStop(1, 'transparent');
+
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.beginPath();
+                    this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+
+                // 中心球体
+                const coreGradient = this.ctx.createRadialGradient(
+                    centerX, centerY, 0,
+                    centerX, centerY, orbSize
+                );
+
+                coreGradient.addColorStop(0, '#ffffff');
+                coreGradient.addColorStop(0.3, `hsl(${this.time % 360}, 70%, 80%)`);
+                coreGradient.addColorStop(1, `hsl(${this.time % 360}, 70%, 40%)`);
+
+                this.ctx.fillStyle = coreGradient;
+                this.ctx.beginPath();
+                this.ctx.arc(centerX, centerY, orbSize, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+
+            animate() {
+                const audioData = this.getAudioData();
+
+                // 清除画布
+                this.drawBackground(audioData);
+
+                // 绘制各种效果
+                this.drawSpectrum(audioData);
+                this.drawWaves(audioData);
+                this.drawParticles(audioData);
+                this.drawFrequencyBars(audioData);
+                this.drawExplosions();
+                this.drawLightning(audioData);
+                this.drawCentralOrb(audioData);
+
+                this.time++;
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
+        // 启动应用
+        window.addEventListener('load', () => {
+            new SpectacularVisualizer();
+        });
+    </script>
+</body>
+
+</html>
